@@ -1,0 +1,133 @@
+---
+title: "ASL Verb Acquisition"
+author: "Allison Fitch"
+last update: "2024-12-15"
+output: html_notebook
+---
+
+Load the required packages 
+```{r}
+library(wordbankr)
+library(dplyr)
+library(lme4)
+library(ggplot2)
+library(plyr)
+library(effects)
+library(readxl)
+```
+
+Get CDI data for ASL, American English, and Beijing Mandarin (WS forms)
+```{r}
+asl_AA_data<- get_instrument_data(language = "American Sign Language", form = "FormA", administration_info = TRUE, item_info = TRUE)
+asl_AA_data<-cbind(asl_AA_data,length(unique(asl_AA_data$item_id)))
+colnames(asl_AA_data)<-c(colnames(asl_AA_data[1:23]),"total_items")
+
+
+asl_AB1_data<- get_instrument_data(language = "American Sign Language", form = "FormBOne", administration_info = TRUE, item_info = TRUE)
+asl_AB1_data<-cbind(asl_AB1_data,length(unique(asl_AB1_data$item_id)))
+colnames(asl_AB1_data)<-c(colnames(asl_AB1_data[1:23]),"total_items")
+
+asl_AB2_data<- get_instrument_data(language = "American Sign Language", form = "FormBTwo", administration_info = TRUE, item_info = TRUE)
+asl_AB2_data<-cbind(asl_AB2_data,length(unique(asl_AB2_data$item_id)))
+colnames(asl_AB2_data)<-c(colnames(asl_AB2_data[1:23]),"total_items")
+
+asl_AC_data<- get_instrument_data(language = "American Sign Language", form = "FormC", administration_info = TRUE, item_info = TRUE)
+asl_AC_data<-cbind(asl_AC_data,length(unique(asl_AC_data$item_id)))
+colnames(asl_AC_data)<-c(colnames(asl_AC_data[1:23]),"total_items")
+
+asl_cdi2_data<- get_instrument_data(language = "American Sign Language", form = "CDITwo", administration_info = TRUE, item_info = TRUE)
+asl_cdi2_data<-cbind(asl_cdi2_data,length(unique(asl_cdi2_data$item_id)))
+colnames(asl_cdi2_data)<-c(colnames(asl_cdi2_data[1:23]),"total_items")
+
+english_ws_data<-get_instrument_data(language = "English (American)", form = "WS", administration_info = TRUE, item_info = TRUE)
+english_ws_data<-cbind(english_ws_data,length(unique(english_ws_data$item_id)))
+colnames(english_ws_data)<-c(colnames(english_ws_data[1:23]),"total_items")
+
+beijing_ws_data<-get_instrument_data(language = "Mandarin (Beijing)", form = "WS", administration_info = TRUE, item_info = TRUE)
+beijing_ws_data<-cbind(beijing_ws_data,length(unique(beijing_ws_data$item_id)))
+colnames(beijing_ws_data)<-c(colnames(beijing_ws_data[1:23]),"total_items")
+
+#put the ASL data together
+FullASLdata<-rbind(asl_cdi2_data,asl_AA_data,asl_AB1_data,asl_AB2_data,asl_AC_data)
+
+#reduce to action words aka verbs only and put them into one dataframe
+ASLVerbs<-filter(FullASLdata, category == "action_words")
+EngVerbs<-filter(english_ws_data, category == "action_words")
+BeijingVerbs<-filter(beijing_ws_data, category == "action_words")
+AllVerbs<-rbind(ASLVerbs,EngVerbs,BeijingVerbs)
+
+```
+
+Here I created dataframes with item x participant information
+```{r}
+VerbsXSubject<-ddply(ASLVerbs, c("data_id","age","language","production"), summarise,
+    prop_prod=median(production, na.rm = TRUE)/median(total_items, na.rm = TRUE),prop_verbsprod=sum(produces==TRUE, na.rm = TRUE)/length(produces))
+
+SpokenVerbsXSubject<-ddply(EngVerbs, c("data_id","age","language","production"), summarise,
+    prop_prod=median(production, na.rm = TRUE)/median(total_items, na.rm = TRUE),prop_verbsprod=sum(produces==TRUE, na.rm = TRUE)/length(produces))
+
+MandarinVerbsXSubject<-ddply(BeijingVerbs, c("data_id","age","language","production"), summarise,
+    prop_prod=median(production, na.rm = TRUE)/median(total_items, na.rm = TRUE),prop_verbsprod=sum(produces==TRUE, na.rm = TRUE)/length(produces))
+
+FullVerbsXSubject<-ddply(AllVerbs, c("data_id","age","language","production"), summarise,
+    prop_prod=median(production, na.rm = TRUE)/median(total_items, na.rm = TRUE),prop_verbsprod=sum(produces==TRUE, na.rm = TRUE)/length(produces))
+
+
+#get verb ratios for each participant
+VTRatio<-FullVerbsXSubject$prop_verbsprod/FullVerbsXSubject$prop_prod
+FullVerbsXSubject<-cbind(FullVerbsXSubject,VTRatio)
+
+Ratios<-ddply(FullVerbsXSubject, c("language"),summarise, ratio = mean(VTRatio, na.rm = TRUE),sd = sd(VTRatio, na.rm = TRUE), sem=(sd(VTRatio, na.rm = TRUE)/sqrt(sum(!is.na(VTRatio)))), lower = ratio - (sem*1.96), upper = ratio + (sem*1.96))
+```
+
+Here I plotted the verb proportion curves (relative to the diagonal) and the average ratio by language
+```{r}
+ComparePlot<- ggplot(FullVerbsXSubject, aes(x = prop_prod, y = prop_verbsprod, color = language, shape = language)) 
+ComparePlot + geom_point(position = "jitter",aes(alpha = language)) +
+     geom_smooth(method = loess) +
+    labs(x="Proportion Total Items Produced", y = "Proportion Verbs Produced")+  scale_color_manual(values=c('#999999','#E69F00','#34c3eb'))+ scale_alpha_manual(values = c(1, .1, .1)) + theme(legend.text=element_text(size=18), axis.text=element_text(size=18),axis.title=element_text(size=18)) + geom_abline(intercept = 0, slope = 1) + ylim(0,1) + xlim(0,1) + theme_bw()
+
+
+RatioPlot<-ggplot(Ratios,aes(x = language, y = ratio, col = language))
+  RatioPlot + geom_pointrange(aes(ymin=lower,ymax=upper)) + labs(x="Language", y = "Verb Ratio")+ geom_hline(yintercept = 1,linetype = "dashed") + guides(colour = "none") + theme_bw()+ scale_color_manual(values=c('#999999','#E69F00','#34c3eb')) + coord_flip()
+```
+
+Next I compared variances between ASL and English because ASL has a much smaller sample. There is a loop for shuffling and iterating. 
+```{r}
+  asl_sample<-filter(FullVerbsXSubject,language == "American Sign Language")
+asl_sample<-asl_sample[,7]
+ p_values<-matrix(data = NA, nrow = 100)
+for(r in 1:1000){
+  floor(runif(171, min=0, max=sum(FullVerbsXSubject$language=="English (American)")))
+  curr_engsample<-FullVerbsXSubject[(floor(runif(171, min=0, max=sum(FullVerbsXSubject$language=="English (American)")))),7]
+  
+pval<-var.test(curr_engsample,asl_sample)
+
+p_values[r]<-pval$p.value
+}
+
+num_sig<-sum(p_values<=.05)
+```
+
+Next I got item level data from ASL-LEX and lab coding and used those to predict likelihood of production
+```{r}
+ASLItemData<-read_xlsx("~/Downloads/ASL-LEX Verbs.xlsx")
+ASLVerbsItem<-right_join(ASLVerbs,ASLItemData)
+ASLVerbsItemClean<-filter(ASLVerbsItem, uni_lemma != "NA")
+ASLVerbsItemClean<-filter(ASLVerbsItemClean, !is.na(data_id))
+ASLVerbsItemClean$Iconicity_Z_NonSigner<-as.numeric(ASLVerbsItemClean$Iconicity_Z_NonSigner)
+ASLVerbsItemClean$Plain<-as.factor(ASLVerbsItemClean$Plain)
+
+#analyze likelihood of knowing by age, frequency, iconicity, and plain
+model<-glmer(produces ~ age + Iconicity_Z_NonSigner * Plain + Frequency_Z + (1|data_id), data = ASLVerbsItemClean, family = binomial)
+
+summary(model)
+```
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
